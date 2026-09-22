@@ -51,14 +51,22 @@
     </header>
 
     <div class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-        <button onclick="toggleMobileSidebar()" class="md:hidden absolute top-3 left-3 z-20 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 p-2 rounded-lg shadow border border-gray-200 dark:border-gray-700 text-xs font-medium">
-            <i class="fa-solid fa-bars"></i> メニュー
+        <!-- モバイル用メニューを開くボタン -->
+        <button onclick="toggleMobileSidebar()" class="md:hidden absolute top-3 left-3 z-20 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 px-3 py-2 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 text-xs font-bold flex items-center gap-1.5 active:scale-95 transition-transform">
+            <i class="fa-solid fa-bars text-brand-600"></i> メニュー
         </button>
 
-        <aside id="sidebar" class="w-full md:w-80 lg:w-96 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col z-20 absolute md:relative inset-y-0 left-0 transform -translate-x-full md:translate-x-0 transition-transform duration-300 shadow-xl md:shadow-none">
-            <div class="p-2 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center md:hidden">
-                <span class="text-xs font-bold text-gray-500">コントロールパネル</span>
-                <button onclick="toggleMobileSidebar()" class="p-1 text-gray-400"><i class="fa-solid fa-xmark"></i></button>
+        <!-- モバイル用暗い背景オーバーレイ -->
+        <div id="sidebarOverlay" onclick="toggleMobileSidebar()" class="hidden fixed inset-0 bg-black/50 z-30 md:hidden backdrop-blur-xs"></div>
+
+        <!-- サイドバー (コントロールパネル) -->
+        <aside id="sidebar" class="w-4/5 max-w-xs md:w-80 lg:w-96 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col z-40 fixed md:relative inset-y-0 left-0 transform -translate-x-full md:translate-x-0 transition-transform duration-300 shadow-2xl md:shadow-none">
+            <!-- モバイル用ヘッダー（閉じるボタン） -->
+            <div class="p-2.5 bg-brand-50 dark:bg-gray-700/60 border-b border-brand-100 dark:border-gray-700 flex justify-between items-center md:hidden">
+                <span class="text-xs font-bold text-brand-700 dark:text-brand-300"><i class="fa-solid fa-sliders mr-1"></i>コントロールパネル</span>
+                <button onclick="toggleMobileSidebar()" class="bg-brand-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold shadow flex items-center gap-1">
+                    <span>🗺️ 地図に戻る</span>
+                </button>
             </div>
 
             <div id="panelRoutes" class="flex-1 flex flex-col overflow-hidden p-3 space-y-3">
@@ -376,7 +384,12 @@
 
         function filterStopsAndRoutes() { renderMapElements(); }
         function resetMapView() { map.setView([35.4550, 139.6360], 14); }
-        function toggleMobileSidebar() { document.getElementById('sidebar').classList.toggle('-translate-x-full'); }
+        function toggleMobileSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            sidebar.classList.toggle('-translate-x-full');
+            overlay.classList.toggle('hidden');
+        }
         function toggleDarkMode() { document.documentElement.classList.toggle('dark'); }
         function showToast(msg) { const t = document.getElementById('toastNotification'); document.getElementById('toastMessage').innerText = msg; t.classList.remove('hidden'); setTimeout(() => t.classList.add('hidden'), 3000); }
         function hideToast() { document.getElementById('toastNotification').classList.add('hidden'); }
