@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>路線バス停留所マップ</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="バス停ナビ">
+    <meta name="theme-color" content="#0284c7">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3448/3448339.png">
+    <link rel="manifest" href="data:application/manifest+json;utf8,%7B%22name%22%3A%22%E3%83%90%E3%82%B9%E5%81%9C%E3%83%8A%E3%83%93%22%2C%22short_name%22%3A%22%E3%83%90%E3%82%B9%E5%81%9C%E3%83%8A%E3%83%93%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%230284c7%22%7D">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { colors: { brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0284c7', 600: '#0369a1', 700: '#075985' } } } }
+        }
+    </script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans JP', sans-serif; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+        .leaflet-popup-content-wrapper { border-radius: 12px; padding: 4px; }
+        .dark .leaflet-popup-content-wrapper, .dark .leaflet-popup-tip { background-color: #1f2937; color: #f3f4f6; }
+        @keyframes busPulse { 0% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); opacity: 0.9; } }
+        .bus-marker-active { animation: busPulse 2s infinite ease-in-out; }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-100 h-screen flex flex-col overflow-hidden">
+    <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-3 py-2 flex items-center justify-between z-30 shadow-sm flex-shrink-0">
+        <div class="flex items-center space-x-2">
+            <div class="bg-brand-600 text-white p-2 rounded-lg shadow"><i class="fa-solid fa-bus text-lg"></i></div>
+            <div>
+                <h1 class="text-sm font-bold flex items-center gap-1">路線バス停留所ナビ</h1>
+                <p class="text-[10px] text-gray-500 dark:text-gray-400">みなとみらい・横浜エリア</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-1">
+            <div class="bg-gray-100 dark:bg-gray-700 p-1 rounded-lg flex text-xs">
+                <button id="tabViewBtn" onclick="switchSidebarTab('routes')" class="px-2 py-1 rounded bg-white dark:bg-gray-600 font-bold text-brand-600 dark:text-brand-300">路線</button>
+                <button id="tabSearchBtn" onclick="switchSidebarTab('search')" class="px-2 py-1 rounded text-gray-600 dark:text-gray-300">検索</button>
+                <button id="tabEditBtn" onclick="switchSidebarTab('editor')" class="px-2 py-1 rounded text-gray-600 dark:text-gray-300">作成</button>
+            </div>
+            <button onclick="toggleDarkMode()" class="p-2 text-gray-500 dark:text-gray-400">
+                <i class="fa-solid fa-moon dark:hidden"></i><i class="fa-solid fa-sun hidden dark:block text-amber-400"></i>
+            </button>
+        </div>
+    </header>
+
+    <div class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+        <button onclick="toggleMobileSidebar()" class="md:hidden absolute top-3 left-3 z-20 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 p-2 rounded-lg shadow border border-gray-200 dark:border-gray-700 text-xs font-medium">
+            <i class="fa-solid fa-bars"></i> メニュー
+        </button>
+
+        <aside id="sidebar" class="w-full md:w-80 lg:w-96 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col z-20 absolute md:relative inset-y-0 left-0 transform -translate-x-full md:translate-x-0 transition-transform duration-300 shadow-xl md:shadow-none">
+            <div class="p-2 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center md:hidden">
+                <span class="text-xs font-bold text-gray-500">コントロールパネル</span>
+                <button onclick="toggleMobileSidebar()" class="p-1 text-gray-400"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div id="panelRoutes" class="flex-1 flex flex-col overflow-hidden p-3 space-y-3">
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-400 text-xs"></i>
+                    <input type="text" id="stopSearchInput" oninput="filterStopsAndRoutes()" placeholder="バス停名・路線名で検索..." class="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-xs focus:outline-none">
+                </div>
+
+                <div class="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg p-2 flex items-center justify-between text-xs">
+                    <div class="flex items-center space-x-2">
+                        <span class="relative flex h-2.5 w-2.5">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <span class="font-bold text-emerald-800 dark:text-emerald-300">運行中シミュレーション</span>
+                    </div>
+                    <button onclick="toggleBusSimulation()" id="simToggleBtn" class="px-2 py-0.5 bg-emerald-600 text-white rounded text-[11px]">一時停止</button>
+                </div>
+
+                <div class="space-y-1">
+                    <div class="flex items-center justify-between text-xs font-semibold text-gray-500">
+                        <span>路線一覧 (<span id="routeCount">0</span>)</span>
+                        <button onclick="toggleAllRoutes(true)" class="text-brand-600 text-[11px]">すべて表示</button>
+                    </div>
+                    <div id="routeListContainer" class="space-y-1.5 overflow-y-auto max-h-48 pr-1"></div>
+                </div>
+
+                <div id="stopDetailCard" class="hidden flex-1 border-t border-gray-200 dark:border-gray-700 pt-2 flex flex-col overflow-hidden">
+                    <div class="flex justify-between items-start mb-1">
+                        <div>
+                            <span class="text-[9px] font-bold px-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">選択中</span>
+                            <h3 id="cardStopName" class="text-sm font-bold">--</h3>
+                        </div>
+                        <button onclick="closeStopDetailCard()" class="text-gray-400"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div id="cardStopRoutes" class="flex flex-wrap gap-1 mb-1"></div>
+                    <p id="cardStopDesc" class="text-[11px] text-gray-500 dark:text-gray-400 mb-2"></p>
+                    <div class="flex-1 bg-gray-50 dark:bg-gray-700/40 rounded p-2 overflow-y-auto text-xs border border-gray-200 dark:border-gray-700">
+                        <div class="font-bold mb-1 border-b pb-0.5 text-gray-700 dark:text-gray-300"><i class="fa-regular fa-clock mr-1"></i>時刻表</div>
+                        <div id="cardTimetableList" class="space-y-0.5"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="panelSearch" class="hidden flex-1 flex flex-col p-3 space-y-3">
+                <h2 class="text-xs font-bold text-gray-800 dark:text-gray-200"><i class="fa-solid fa-route text-brand-600 mr-1"></i>経路・運賃検索</h2>
+                <div class="space-y-2 bg-gray-50 dark:bg-gray-700/50 p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs">
+                    <div>
+                        <label class="block text-gray-600 dark:text-gray-300 mb-0.5">出発</label>
+                        <select id="searchFromStop" class="w-full bg-white dark:bg-gray-800 border p-1.5 rounded"></select>
+                    </div>
+                    <div>
+                        <label class="block text-gray-600 dark:text-gray-300 mb-0.5">到着</label>
+                        <select id="searchToStop" class="w-full bg-white dark:bg-gray-800 border p-1.5 rounded"></select>
+                    </div>
+                    <button onclick="calculateRoute()" class="w-full bg-brand-600 text-white py-1.5 rounded font-bold">検索する</button>
+                </div>
+                <div id="searchResultArea" class="hidden flex-1 overflow-y-auto">
+                    <div id="searchResultCard" class="bg-white dark:bg-gray-800 border-2 border-brand-500 rounded-lg p-2.5 shadow-sm text-xs"></div>
+                </div>
+            </div>
+
+            <div id="panelEditor" class="hidden flex-1 flex flex-col p-3 space-y-3">
+                <div class="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-2 rounded text-[11px] text-amber-800 dark:text-amber-300">
+                    <b>オリジナル路線作成:</b> 地図上をクリックしてバス停を追加できます。
+                </div>
+                <div class="space-y-2 overflow-y-auto flex-1 text-xs">
+                    <input type="text" id="newRouteName" placeholder="路線名 (例: 循環バス)" class="w-full bg-gray-50 dark:bg-gray-700 border p-1.5 rounded">
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="color" id="newRouteColor" value="#ec4899" class="w-full h-8 bg-gray-50 dark:bg-gray-700 border rounded cursor-pointer">
+                        <input type="number" id="newRouteFare" value="220" placeholder="運賃" class="w-full bg-gray-50 dark:bg-gray-700 border p-1.5 rounded">
+                    </div>
+                    <div class="border-t pt-2">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold">停留所リスト (<span id="editorStopCount">0</span>)</span>
+                            <button id="addStopClickModeBtn" onclick="toggleAddStopMapClickMode()" class="px-2 py-0.5 text-[11px] bg-gray-100 dark:bg-gray-700 border rounded">地図クリック追加: OFF</button>
+                        </div>
+                        <ul id="editorStopList" class="space-y-1 max-h-36 overflow-y-auto bg-gray-50 dark:bg-gray-700/30 p-1.5 rounded text-[11px]">
+                            <li class="text-gray-400 italic text-center py-2">「地図クリック追加」をONにして地図をクリック</li>
+                        </ul>
+                    </div>
+                    <button onclick="saveCustomRoute()" class="w-full bg-emerald-600 text-white py-1.5 rounded font-bold">路線を登録する</button>
+                </div>
+            </div>
+
+            <div id="toastNotification" class="hidden absolute bottom-3 left-3 right-3 bg-gray-900 text-white text-xs px-3 py-2 rounded shadow-xl flex items-center justify-between z-50">
+                <span id="toastMessage"></span>
+                <button onclick="hideToast()" class="text-gray-400"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+        </aside>
+
+        <main class="flex-1 relative h-full">
+            <div id="map" class="w-full h-full z-10"></div>
+            <div class="absolute top-3 right-3 z-20 flex flex-col gap-1.5">
+                <button onclick="resetMapView()" class="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 p-2 rounded-lg shadow border text-xs font-semibold">全体表示</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let busRoutes = [
+            {
+                id: "route-1", name: "101系統 [横浜駅〜桜木町〜赤レンガ]", color: "#2563eb", fare: 220, visible: true,
+                stops: [
+                    { id: "stop-101", name: "横浜駅東口", lat: 35.4658, lng: 139.6244, desc: "ターミナル", timetable: ["07:10", "08:10", "09:00", "10:00", "12:00", "14:00", "16:00", "18:15"] },
+                    { id: "stop-102", name: "高島町", lat: 35.4590, lng: 139.6252, desc: "ブルーライン接続", timetable: ["07:14", "08:14", "09:04", "10:04", "12:04", "14:04", "16:04", "18:19"] },
+                    { id: "stop-103", name: "パシフィコ横浜", lat: 35.4598, lng: 139.6360, desc: "展示場前", timetable: ["07:20", "08:20", "09:10", "10:10", "12:10", "14:10", "16:10", "18:25"] },
+                    { id: "stop-104", name: "赤レンガ倉庫前", lat: 35.4528, lng: 139.6432, desc: "観光名所", timetable: ["07:26", "08:26", "09:16", "10:16", "12:16", "14:16", "16:16", "18:31"] },
+                    { id: "stop-105", name: "桜木町駅前", lat: 35.4503, lng: 139.6310, desc: "JR・ロープウェイ", timetable: ["07:32", "08:32", "09:22", "10:22", "12:22", "14:22", "16:22", "18:37"] }
+                ]
+            },
+            {
+                id: "route-2", name: "202系統 [桜木町〜中華街〜山下公園]", color: "#dc2626", fare: 220, visible: true,
+                stops: [
+                    { id: "stop-105", name: "桜木町駅前", lat: 35.4503, lng: 139.6310, desc: "JR・ロープウェイ", timetable: ["08:00", "09:00", "10:00", "11:00", "13:00", "15:00", "17:00"] },
+                    { id: "stop-201", name: "ワールドポーターズ前", lat: 35.4535, lng: 139.6380, desc: "商業施設直結", timetable: ["08:05", "09:05", "10:05", "11:05", "13:05", "15:05", "17:05"] },
+                    { id: "stop-202", name: "中華街入口", lat: 35.4435, lng: 139.6450, desc: "朝陽門すぐ", timetable: ["08:12", "09:12", "10:12", "11:12", "13:12", "15:12", "17:12"] },
+                    { id: "stop-203", name: "山下公園前", lat: 35.4452, lng: 139.6502, desc: "氷川丸前", timetable: ["08:17", "09:17", "10:17", "11:17", "13:17", "15:17", "17:17"] }
+                ]
+            }
+        ];
+
+        let map, mapRouteLines = {}, mapStopMarkers = {}, activeBuses = [], simulationInterval = null, isSimulating = true, selectedStopId = null;
+        let isMapClickAddStopEnabled = false, customStopsQueue = [];
+
+        window.onload = function() { initMap(); renderRouteList(); populateSearchSelects(); startBusSimulation(); };
+
+        function initMap() {
+            map = L.map('map', { zoomControl: false }).setView([35.4550, 139.6360], 14);
+            L.control.zoom({ position: 'bottomleft' }).addTo(map);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
+            map.on('click', onMapClick);
+            renderMapElements();
+        }
+
+        function renderMapElements() {
+            Object.values(mapRouteLines).forEach(l => map.removeLayer(l));
+            Object.values(mapStopMarkers).forEach(m => map.removeLayer(m.marker));
+            mapRouteLines = {}; mapStopMarkers = {};
+
+            busRoutes.forEach(route => {
+                if (!route.visible) return;
+                const polyline = L.polyline(route.stops.map(s => [s.lat, s.lng]), { color: route.color, weight: 5, opacity: 0.8 }).addTo(map);
+                polyline.bindTooltip(route.name);
+                mapRouteLines[route.id] = polyline;
+            });
+
+            const uniqueStops = {};
+            busRoutes.forEach(r => { if (r.visible) r.stops.forEach(s => uniqueStops[s.id] = s); });
+
+            Object.values(uniqueStops).forEach(stop => {
+                const icon = L.divIcon({
+                    html: `<div class="w-5 h-5 rounded-full bg-brand-600 border-2 border-white shadow flex items-center justify-center text-[10px] text-white"><i class="fa-solid fa-bus"></i></div>`,
+                    className: '', iconSize: [20, 20], iconAnchor: [10, 10]
+                });
+                const marker = L.marker([stop.lat, stop.lng], { icon }).addTo(map);
+                marker.bindPopup(`<b>${stop.name}</b><br><span class="text-xs">${stop.desc || ''}</span><br><button onclick="selectBusStop('${stop.id}')" class="mt-1 bg-brand-600 text-white text-[10px] px-2 py-0.5 rounded">詳細・時刻表</button>`);
+                marker.on('click', () => selectBusStop(stop.id));
+                mapStopMarkers[stop.id] = { marker, data: stop };
+            });
+        }
+
+        function renderRouteList() {
+            const container = document.getElementById('routeListContainer');
+            container.innerHTML = '';
+            document.getElementById('routeCount').innerText = busRoutes.length;
+
+            busRoutes.forEach(route => {
+                const div = document.createElement('div');
+                div.className = `p-2 rounded border flex items-center justify-between cursor-pointer ${route.visible ? 'bg-white dark:bg-gray-700' : 'bg-gray-50 dark:bg-gray-800 opacity-60'}`;
+                div.innerHTML = `
+                    <div class="flex items-center space-x-2 min-w-0" onclick="zoomToRoute('${route.id}')">
+                        <span class="w-3 h-3 rounded-full flex-shrink-0" style="background:${route.color}"></span>
+                        <div class="truncate text-xs font-bold">${route.name}</div>
+                    </div>
+                    <button onclick="toggleRouteVisibility('${route.id}', event)" class="text-gray-400 p-1">
+                        <i class="fa-solid ${route.visible ? 'fa-eye text-brand-600' : 'fa-eye-slash'} text-xs"></i>
+                    </button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function toggleRouteVisibility(id, e) {
+            if (e) e.stopPropagation();
+            const r = busRoutes.find(x => x.id === id);
+            if (r) { r.visible = !r.visible; renderRouteList(); renderMapElements(); }
+        }
+
+        function toggleAllRoutes(show) {
+            busRoutes.forEach(r => r.visible = show);
+            renderRouteList(); renderMapElements();
+        }
+
+        function zoomToRoute(id) {
+            const r = busRoutes.find(x => x.id === id);
+            if (r && r.stops.length) map.fitBounds(L.latLngBounds(r.stops.map(s => [s.lat, s.lng])), { padding: [30, 30] });
+        }
+
+        function selectBusStop(id) {
+            selectedStopId = id;
+            let stop = null;
+            busRoutes.forEach(r => { const s = r.stops.find(x => x.id === id); if (s) stop = s; });
+            if (!stop) return;
+
+            document.getElementById('stopDetailCard').classList.remove('hidden');
+            document.getElementById('cardStopName').innerText = stop.name;
+            document.getElementById('cardStopDesc').innerText = stop.desc || '';
+
+            const container = document.getElementById('cardTimetableList');
+            container.innerHTML = (stop.timetable || []).map(t => `<span class="inline-block bg-white dark:bg-gray-600 px-1.5 py-0.5 rounded border text-[11px] font-mono mr-1 mb-1">${t}</span>`).join('');
+            map.panTo([stop.lat, stop.lng]);
+        }
+
+        function closeStopDetailCard() { document.getElementById('stopDetailCard').classList.add('hidden'); }
+
+        function populateSearchSelects() {
+            const f = document.getElementById('searchFromStop'), t = document.getElementById('searchToStop');
+            f.innerHTML = ''; t.innerHTML = '';
+            const stops = {};
+            busRoutes.forEach(r => r.stops.forEach(s => stops[s.id] = s.name));
+            Object.entries(stops).forEach(([id, name]) => {
+                f.add(new Option(name, id));
+                t.add(new Option(name, id));
+            });
+            if (t.options.length > 1) t.selectedIndex = 1;
+        }
+
+        function calculateRoute() {
+            const from = document.getElementById('searchFromStop').value, to = document.getElementById('searchToStop').value;
+            const res = document.getElementById('searchResultArea'), card = document.getElementById('searchResultCard');
+            if (from === to) return showToast("出発地と目的地が同じです");
+
+            const match = busRoutes.find(r => {
+                const fi = r.stops.findIndex(s => s.id === from), ti = r.stops.findIndex(s => s.id === to);
+                return fi !== -1 && ti !== -1 && fi < ti;
+            });
+
+            res.classList.remove('hidden');
+            if (match) {
+                card.innerHTML = `<div class="font-bold text-emerald-600 mb-1"><i class="fa-solid fa-check-circle"></i> 直通ルート</div><div>${match.name}</div><div class="mt-1">運賃: <b>¥${match.fare}</b></div>`;
+                zoomToRoute(match.id);
+            } else {
+                card.innerHTML = `<div class="text-amber-600"><i class="fa-solid fa-exclamation-triangle"></i> 直通バスがありません</div>`;
+            }
+        }
+
+        function startBusSimulation() {
+            activeBuses = [
+                { id: "b1", routeId: "route-1", progress: 0.1, speed: 0.005, marker: null },
+                { id: "b2", routeId: "route-2", progress: 0.6, speed: 0.004, marker: null }
+            ];
+            if (simulationInterval) clearInterval(simulationInterval);
+            simulationInterval = setInterval(() => {
+                if (!isSimulating) return;
+                activeBuses.forEach(b => {
+                    const r = busRoutes.find(x => x.id === b.routeId);
+                    if (!r || !r.visible || r.stops.length < 2) return;
+                    b.progress = (b.progress + b.speed) % 1;
+                    const segs = r.stops.length - 1, g = b.progress * segs, idx = Math.floor(g), p = g - idx;
+                    const p1 = r.stops[idx], p2 = r.stops[Math.min(idx + 1, segs)];
+                    const lat = p1.lat + (p2.lat - p1.lat) * p, lng = p1.lng + (p2.lng - p1.lng) * p;
+
+                    if (!b.marker) {
+                        const icon = L.divIcon({ html: `<div class="bus-marker-active w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px]"><i class="fa-solid fa-bus"></i></div>`, iconSize: [24,24] });
+                        b.marker = L.marker([lat, lng], { icon }).addTo(map);
+                    } else { b.marker.setLatLng([lat, lng]); }
+                });
+            }, 500);
+        }
+
+        function toggleBusSimulation() {
+            isSimulating = !isSimulating;
+            document.getElementById('simToggleBtn').innerText = isSimulating ? "一時停止" : "再開";
+        }
+
+        function toggleAddStopMapClickMode() {
+            isMapClickAddStopEnabled = !isMapClickAddStopEnabled;
+            const btn = document.getElementById('addStopClickModeBtn');
+            btn.innerText = isMapClickAddStopEnabled ? "地図クリック有効中" : "地図クリック追加: OFF";
+            btn.className = isMapClickAddStopEnabled ? "px-2 py-0.5 text-[11px] bg-brand-600 text-white rounded animate-pulse" : "px-2 py-0.5 text-[11px] bg-gray-100 dark:bg-gray-700 border rounded";
+        }
+
+        function onMapClick(e) {
+            if (!isMapClickAddStopEnabled) return;
+            const name = prompt("バス停名を入力:", `新停留所 #${customStopsQueue.length + 1}`);
+            if (!name) return;
+            customStopsQueue.push({ id: `custom-${Date.now()}`, name, lat: e.latlng.lat, lng: e.latlng.lng, timetable: ["08:00", "12:00", "17:00"] });
+            renderEditorStopList();
+            showToast(`バス停「${name}」を追加しました`);
+        }
+
+        function renderEditorStopList() {
+            const list = document.getElementById('editorStopList');
+            document.getElementById('editorStopCount').innerText = customStopsQueue.length;
+            if (!customStopsQueue.length) { list.innerHTML = `<li class="text-gray-400 italic text-center py-2">「地図クリック追加」をONにして地図をクリック</li>`; return; }
+            list.innerHTML = customStopsQueue.map((s, i) => `<li class="flex justify-between items-center bg-white dark:bg-gray-800 p-1.5 rounded border"><span>${i+1}. ${s.name}</span><button onclick="customStopsQueue.splice(${i},1);renderEditorStopList();" class="text-red-500"><i class="fa-solid fa-trash"></i></button></li>`).join('');
+        }
+
+        function saveCustomRoute() {
+            const name = document.getElementById('newRouteName').value.trim();
+            if (!name || customStopsQueue.length < 2) return showToast("路線名と2箇所以上のバス停が必要です");
+            busRoutes.push({ id: `r-${Date.now()}`, name, color: document.getElementById('newRouteColor').value, fare: parseInt(document.getElementById('newRouteFare').value)||220, visible: true, stops: [...customStopsQueue] });
+            customStopsQueue = []; renderEditorStopList(); renderRouteList(); populateSearchSelects(); renderMapElements();
+            switchSidebarTab('routes'); showToast(`新路線「${name}」を登録しました`);
+        }
+
+        function switchSidebarTab(tab) {
+            ['panelRoutes', 'panelSearch', 'panelEditor'].forEach(p => document.getElementById(p).classList.add('hidden'));
+            ['tabViewBtn', 'tabSearchBtn', 'tabEditBtn'].forEach(b => document.getElementById(b).className = "px-2 py-1 rounded text-gray-600 dark:text-gray-300");
+            if (tab === 'routes') { document.getElementById('panelRoutes').classList.remove('hidden'); document.getElementById('tabViewBtn').className = "px-2 py-1 rounded bg-white dark:bg-gray-600 font-bold text-brand-600 dark:text-brand-300"; }
+            else if (tab === 'search') { document.getElementById('panelSearch').classList.remove('hidden'); document.getElementById('tabSearchBtn').className = "px-2 py-1 rounded bg-white dark:bg-gray-600 font-bold text-brand-600 dark:text-brand-300"; }
+            else { document.getElementById('panelEditor').classList.remove('hidden'); document.getElementById('tabEditBtn').className = "px-2 py-1 rounded bg-white dark:bg-gray-600 font-bold text-brand-600 dark:text-brand-300"; }
+        }
+
+        function filterStopsAndRoutes() { renderMapElements(); }
+        function resetMapView() { map.setView([35.4550, 139.6360], 14); }
+        function toggleMobileSidebar() { document.getElementById('sidebar').classList.toggle('-translate-x-full'); }
+        function toggleDarkMode() { document.documentElement.classList.toggle('dark'); }
+        function showToast(msg) { const t = document.getElementById('toastNotification'); document.getElementById('toastMessage').innerText = msg; t.classList.remove('hidden'); setTimeout(() => t.classList.add('hidden'), 3000); }
+        function hideToast() { document.getElementById('toastNotification').classList.add('hidden'); }
+    </script>
+</body>
+</html>
